@@ -55,14 +55,21 @@ class NovelCrawler:
         self.db = self.client[mongo_db]
         self.collection = self.db['haitang']
         
-    def get_page(self, url):
-        try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.encoding = 'gbk'
-            return response.text
-        except Exception as e:
-            logger.error(f"获取页面失败: {url} - {e}")
-            return None
+    def get_page(self, url, max_retries=10):
+        """获取页面内容，支持重试机制，间隔指数递增"""
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=self.headers, timeout=10)
+                response.encoding = 'gbk'
+                return response.text
+            except Exception as e:
+                wait_time = (2 ** attempt) + random.uniform(0, 1)  # 指数退避: 1,2,4,8,16,32,64,128,256,512秒
+                logger.warning(f"请求失败 (第{attempt+1}/{max_retries}次): {url} - {e}, {wait_time:.1f}秒后重试")
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"请求最终失败: {url} - 已达最大重试次数")
+        return None
     
     def parse_categories(self):
         """返回分类配置，包含连载中(1)和已完成(2)"""
@@ -170,12 +177,20 @@ class NovelCrawler:
         for i, chapter in enumerate(chapters):
             logger.info(f"  章节 {i+1}/{len(chapters)}: {chapter['title']}")
             chapter_html = self.get_page(chapter['url'])
+            
+            content = None
             if chapter_html:
                 content = self.parse_chapter_content(chapter_html)
-                chapter_contents.append({
-                    'title': chapter['title'],
-                    'content': content
-                })
+                logger.debug(f"    章节获取成功: {chapter['title']}")
+            else:
+                logger.error(f"    章节获取失败: {chapter['title']}")
+            
+            chapter_contents.append({
+                'title': chapter['title'],
+                'url': chapter['url'],
+                'content': content
+            })
+            
             time.sleep(random.uniform(0.5, 1.5))
         
         return chapter_contents
