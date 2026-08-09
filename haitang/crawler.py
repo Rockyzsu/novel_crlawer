@@ -7,8 +7,27 @@ from urllib.parse import urljoin
 import re
 import os
 from dotenv import load_dotenv
+import logging
+from datetime import datetime
 
 load_dotenv()
+
+# 配置日志
+log_dir = 'logs'
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+log_file = os.path.join(log_dir, f'crawler_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 class NovelCrawler:
     def __init__(self):
@@ -42,7 +61,7 @@ class NovelCrawler:
             response.encoding = 'gbk'
             return response.text
         except Exception as e:
-            print(f"Error: {url} - {e}")
+            logger.error(f"获取页面失败: {url} - {e}")
             return None
     
     def parse_categories(self):
@@ -122,6 +141,13 @@ class NovelCrawler:
     def novel_exists(self, novel_url):
         return self.collection.find_one({'novel_url': novel_url}) is not None
     
+    def load_existing_novels(self):
+        """加载所有已爬取的小说URL到内存，避免重复请求"""
+        existing = set()
+        for doc in self.collection.find({}, {'novel_url': 1}):
+            existing.add(doc['novel_url'])
+        return existing
+    
     def save_novel(self, novel_data):
         self.collection.insert_one(novel_data)
     
@@ -134,7 +160,7 @@ class NovelCrawler:
         chapter_contents = []
         
         for i, chapter in enumerate(chapters):
-            print(f"  Chapter {i+1}/{len(chapters)}: {chapter['title']}")
+            logger.info(f"  章节 {i+1}/{len(chapters)}: {chapter['title']}")
             chapter_html = self.get_page(chapter['url'])
             if chapter_html:
                 content = self.parse_chapter_content(chapter_html)
@@ -149,13 +175,17 @@ class NovelCrawler:
     def run(self):
         categories = self.parse_categories()
         
+        # 启动时加载所有已爬取的小说URL
+        existing_novels = self.load_existing_novels()
+        logger.info(f"已存在 {len(existing_novels)} 部小说，跳过爬取")
+        
         for category_name, category_pattern in categories.items():
-            print(f"\nCategory: {category_name}")
+            logger.info(f"开始爬取分类: {category_name}")
             page = 1
             
             while True:
                 url = urljoin(self.base_url, category_pattern.format(page))
-                print(f"Page {page}: {url}")
+                logger.info(f"爬取页面: {url}")
                 html = self.get_page(url)
                 if not html:
                     break
@@ -166,14 +196,14 @@ class NovelCrawler:
                 
                 if page == 1:
                     total_pages = self.get_total_pages(html)
-                    print(f"Total pages: {total_pages}")
+                    logger.info(f"总页数: {total_pages}")
                 
                 for novel in novels:
-                    if self.novel_exists(novel['url']):
-                        print(f"Skip existing: {novel['title']}")
+                    if novel['url'] in existing_novels:
+                        logger.info(f"跳过已存在: {novel['title']}")
                         continue
                     
-                    print(f"Crawling: {novel['title']}")
+                    logger.info(f"爬取小说: {novel['title']}")
                     chapters = self.crawl_novel(novel['url'])
                     
                     if chapters:
@@ -185,7 +215,9 @@ class NovelCrawler:
                             'completed': True
                         }
                         self.save_novel(novel_data)
-                        print(f"Saved: {novel['title']} ({len(chapters)} chapters)")
+                        # 添加到已存在集合，避免同一页面内重复
+                        existing_novels.add(novel['url'])
+                        logger.info(f"保存完成: {novel['title']} ({len(chapters)} 章)")
                     
                     time.sleep(random.uniform(1, 2))
                 
@@ -193,6 +225,8 @@ class NovelCrawler:
                     break
                 page += 1
                 time.sleep(random.uniform(1, 2))
+        
+        logger.info("爬取任务完成")
 
 if __name__ == '__main__':
     crawler = NovelCrawler()
