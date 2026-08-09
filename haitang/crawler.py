@@ -65,16 +65,24 @@ class NovelCrawler:
             return None
     
     def parse_categories(self):
-        return {
-            '耽美小说': 'xs/1-default-0-0-0-0-0-0-{}.html',
-            '百合小说': 'xs/2-default-0-0-0-0-0-0-{}.html',
-            '言情小说': 'xs/3-default-0-0-0-0-0-0-{}.html',
-            '高辣文': 'xs/4-default-0-0-0-0-0-0-{}.html',
-            '腹黑小说': 'xs/5-default-0-0-0-0-0-0-{}.html',
-            '种田文': 'xs/6-default-0-0-0-0-0-0-{}.html',
-            '其他类型': 'xs/7-default-0-0-0-0-0-0-{}.html',
-            '全本': 'xs/10-default-0-0-0-0-0-0-{}.html'
+        """返回分类配置，包含连载中(1)和已完成(2)"""
+        categories = {
+            '耽美小说': '1',
+            '百合小说': '2',
+            '言情小说': '3',
+            '高辣文': '4',
+            '腹黑小说': '5',
+            '种田文': '6',
+            '其他类型': '7',
+            '全本': '10'
         }
+        return categories
+    
+    def get_category_url(self, category_id, status, page):
+        """构建分类URL
+        status: 0=全部, 1=连载中, 2=已完成
+        """
+        return f'xs/{category_id}-default-0-0-0-0-{status}-0-{page}.html'
     
     def parse_novel_list(self, html):
         soup = BeautifulSoup(html, 'html.parser')
@@ -179,52 +187,58 @@ class NovelCrawler:
         existing_novels = self.load_existing_novels()
         logger.info(f"已存在 {len(existing_novels)} 部小说，跳过爬取")
         
-        for category_name, category_pattern in categories.items():
+        status_map = {'1': '连载中', '2': '已完成'}
+        
+        for category_name, category_id in categories.items():
             logger.info(f"开始爬取分类: {category_name}")
-            page = 1
             
-            while True:
-                url = urljoin(self.base_url, category_pattern.format(page))
-                logger.info(f"爬取页面: {url}")
-                html = self.get_page(url)
-                if not html:
-                    break
+            for status_code, status_name in status_map.items():
+                logger.info(f"  状态: {status_name}")
+                page = 1
                 
-                novels = self.parse_novel_list(html)
-                if not novels:
-                    break
-                
-                if page == 1:
-                    total_pages = self.get_total_pages(html)
-                    logger.info(f"总页数: {total_pages}")
-                
-                for novel in novels:
-                    if novel['url'] in existing_novels:
-                        logger.info(f"跳过已存在: {novel['title']}")
-                        continue
+                while True:
+                    url = urljoin(self.base_url, self.get_category_url(category_id, status_code, page))
+                    logger.info(f"  爬取页面: {url}")
+                    html = self.get_page(url)
+                    if not html:
+                        break
                     
-                    logger.info(f"爬取小说: {novel['title']}")
-                    chapters = self.crawl_novel(novel['url'])
+                    novels = self.parse_novel_list(html)
+                    if not novels:
+                        break
                     
-                    if chapters:
-                        novel_data = {
-                            'title': novel['title'],
-                            'novel_url': novel['url'],
-                            'category': category_name,
-                            'chapters': chapters,
-                            'completed': True
-                        }
-                        self.save_novel(novel_data)
-                        # 添加到已存在集合，避免同一页面内重复
-                        existing_novels.add(novel['url'])
-                        logger.info(f"保存完成: {novel['title']} ({len(chapters)} 章)")
+                    if page == 1:
+                        total_pages = self.get_total_pages(html)
+                        logger.info(f"  总页数: {total_pages}")
                     
+                    for novel in novels:
+                        if novel['url'] in existing_novels:
+                            logger.info(f"  跳过已存在: {novel['title']}")
+                            continue
+                        
+                        logger.info(f"  爬取小说: {novel['title']}")
+                        chapters = self.crawl_novel(novel['url'])
+                        
+                        if chapters:
+                            novel_data = {
+                                'title': novel['title'],
+                                'novel_url': novel['url'],
+                                'category': category_name,
+                                'status': status_name,
+                                'chapter_count': len(chapters),
+                                'crawled_at': datetime.now(),
+                                'chapters': chapters
+                            }
+                            self.save_novel(novel_data)
+                            existing_novels.add(novel['url'])
+                            logger.info(f"  保存完成: {novel['title']} ({len(chapters)} 章)")
+                        
+                        time.sleep(random.uniform(1, 2))
+                    
+                    if page >= total_pages:
+                        break
+                    page += 1
                     time.sleep(random.uniform(1, 2))
-                
-                if page >= total_pages:
-                    break
-                page += 1
-                time.sleep(random.uniform(1, 2))
         
         logger.info("爬取任务完成")
 
