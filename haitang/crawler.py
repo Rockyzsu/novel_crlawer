@@ -53,7 +53,7 @@ class NovelCrawler:
             self.client = pymongo.MongoClient(mongo_host, mongo_port)
         
         self.db = self.client[mongo_db]
-        self.collection = self.db['novels']
+        self.collection = self.db['haitang']
         
     def get_page(self, url):
         try:
