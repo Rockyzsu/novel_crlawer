@@ -1,13 +1,37 @@
-import pychrome
 import time
 import random
 import json
+import os
+import re
+import logging
+from datetime import datetime
+from dotenv import load_dotenv
+from urllib.parse import urljoin, unquote
 import pymongo
+from curl_cffi import requests as cffi_requests
+from bs4 import BeautifulSoup
+
+load_dotenv()
+
+log_dir = 'logs'
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+log_file = os.path.join(log_dir, f'crawler_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 class XbookCnCrawler:
     BASE_URL = "https://book.xbookcn.net"
-    CDP_URL = "http://127.0.0.1:9222"
 
     CATEGORIES = {
         "通俗小说": "/p/popular.html",
@@ -21,139 +45,143 @@ class XbookCnCrawler:
     }
 
     def __init__(self):
-        self.client = pymongo.MongoClient("localhost", 27017)
-        self.db = self.client["xbookcn_db"]
-        self.collection = self.db["novels"]
-        self.browser = None
-        self.tab = None
+        mongo_host = os.getenv('MONGO_HOST', 'localhost')
+        mongo_port = int(os.getenv('MONGO_PORT', '27017'))
+        mongo_user = os.getenv('MONGO_USER', '')
+        mongo_pass = os.getenv('MONGO_PASS', '')
+        mongo_db = os.getenv('MONGO_DB', 'xbookcn_db')
 
-    def connect_browser(self):
-        self.browser = pychrome.Browser(url=self.CDP_URL)
-        self.tab = self.browser.list_tab()[0]
-        self.tab.start()
-        self.tab.Page.enable()
+        if mongo_user and mongo_pass:
+            self.client = pymongo.MongoClient(
+                host=mongo_host,
+                port=mongo_port,
+                username=mongo_user,
+                password=mongo_pass
+            )
+        else:
+            self.client = pymongo.MongoClient(mongo_host, mongo_port)
 
-    def close_browser(self):
-        if self.tab:
+        self.db = self.client[mongo_db]
+        self.collection = self.db['xbookcn']
+
+        self.proxies = {}
+        proxy = os.getenv('PROXY', '')
+        if proxy:
+            self.proxies = {'https': proxy, 'http': proxy}
+
+        self.session = cffi_requests.Session(impersonate="chrome")
+
+    def get_page(self, url, max_retries=10):
+        for attempt in range(max_retries):
             try:
-                self.tab.stop()
-            except Exception:
-                pass
-
-    def navigate(self, url, wait=6):
-        self.tab.Page.navigate(url=url)
-        time.sleep(wait)
-
-    def js_eval(self, expression):
-        result = self.tab.Runtime.evaluate(expression=expression)
-        return result.get("result", {}).get("value", "")
+                r = self.session.get(url, proxies=self.proxies, timeout=20)
+                if r.status_code == 200:
+                    return r.text
+                logger.warning(f"HTTP {r.status_code}: {url}")
+            except Exception as e:
+                wait_time = (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(f"请求失败 (第{attempt+1}/{max_retries}次): {url} - {e}, {wait_time:.1f}秒后重试")
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+        logger.error(f"请求彻底失败: {url}")
+        return None
 
     def sleep_random(self, lo=1.0, hi=3.0):
         time.sleep(random.uniform(lo, hi))
 
-    def novel_exists(self, novel_url):
-        return self.collection.find_one({"novel_url": novel_url}) is not None
+    def load_existing_novels(self):
+        existing = set()
+        for doc in self.collection.find({}, {'novel_url': 1}):
+            existing.add(doc['novel_url'])
+        return existing
 
     def get_category_novels(self, category_name, category_path):
         url = self.BASE_URL + category_path
-        print(f"  [Category] {category_name}: {url}")
-        self.navigate(url, wait=6)
+        logger.info(f"[Category] {category_name}: {url}")
+        html = self.get_page(url)
+        if not html:
+            return []
 
-        js = """(function() {
-            var posts = document.querySelectorAll('.post');
-            var novels = [];
-            for (var i = 0; i < posts.length; i++) {
-                var body = posts[i].querySelector('.post-body');
-                if (!body) continue;
-                var links = body.querySelectorAll('a');
-                for (var j = 0; j < links.length; j++) {
-                    var href = links[j].href;
-                    var text = links[j].innerText.trim();
-                    if (href && text && href.includes('/search/label/')) {
-                        novels.push({title: text, url: href});
-                    }
-                }
-            }
-            return JSON.stringify(novels);
-        })()"""
-        raw = self.js_eval(js)
-        if not raw:
-            return []
-        try:
-            return json.loads(raw)
-        except Exception:
-            return []
+        soup = BeautifulSoup(html, 'html.parser')
+        novels = []
+        for post in soup.select('.post'):
+            body = post.select_one('.post-body')
+            if not body:
+                continue
+            for a in body.find_all('a', href=True):
+                href = a['href']
+                text = a.get_text(strip=True)
+                if text and '/search/label/' in href:
+                    if not href.startswith('http'):
+                        href = urljoin(self.BASE_URL, href)
+                    novels.append({'title': text, 'url': href})
+        return novels
 
     def get_novel_chapters(self, novel_url):
-        self.navigate(novel_url, wait=6)
-
         chapters = []
+        url = novel_url
         page = 1
-        while True:
-            js = """(function() {
-                var posts = document.querySelectorAll('.post');
-                var chapters = [];
-                for (var i = 0; i < posts.length; i++) {
-                    var titleEl = posts[i].querySelector('.post-title a');
-                    if (!titleEl) continue;
-                    chapters.push({
-                        title: titleEl.innerText.trim(),
-                        url: titleEl.href
-                    });
-                }
-                return JSON.stringify(chapters);
-            })()"""
-            raw = self.js_eval(js)
-            if raw:
-                try:
-                    page_chapters = json.loads(raw)
-                    chapters.extend(page_chapters)
-                except Exception:
-                    pass
 
-            has_next = self.js_eval("""(function() {
-                var older = document.querySelector('.blog-pager-older-link');
-                return older ? older.href : '';
-            })()""")
-
-            if not has_next:
+        while url:
+            html = self.get_page(url)
+            if not html:
                 break
-            page += 1
-            print(f"    Next page {page}: {has_next}")
-            self.navigate(has_next, wait=5)
+
+            soup = BeautifulSoup(html, 'html.parser')
+            for post in soup.select('.post'):
+                title_el = post.select_one('.post-title a')
+                if not title_el:
+                    continue
+                href = title_el.get('href', '')
+                title = title_el.get_text(strip=True)
+                if href and title:
+                    if not href.startswith('http'):
+                        href = urljoin(self.BASE_URL, href)
+                    chapters.append({'title': title, 'url': href})
+
+            older = soup.select_one('.blog-pager-older-link')
+            if older and older.get('href'):
+                url = older['href']
+                page += 1
+                logger.info(f"    Next page {page}")
+                self.sleep_random(1.0, 2.0)
+            else:
+                url = None
 
         return chapters
 
     def get_chapter_content(self, chapter_url):
-        self.navigate(chapter_url, wait=4)
+        html = self.get_page(chapter_url)
+        if not html:
+            return ""
 
-        js = """(function() {
-            var post = document.querySelector('.post-body');
-            if (!post) return '';
-            var clone = post.cloneNode(true);
-            var scripts = clone.querySelectorAll('script, style, div.clear');
-            for (var i = 0; i < scripts.length; i++) {
-                scripts[i].remove();
-            }
-            return clone.innerText.trim();
-        })()"""
-        return self.js_eval(js)
+        soup = BeautifulSoup(html, 'html.parser')
+        post_body = soup.select_one('.post-body')
+        if not post_body:
+            return ""
 
-    def crawl_novel(self, novel_title, novel_url, category=""):
-        if self.novel_exists(novel_url):
-            print(f"  [Skip] {novel_title} (already crawled)")
+        for tag in post_body.find_all(['script', 'style']):
+            tag.decompose()
+        for div in post_body.find_all('div', class_='clear'):
+            div.decompose()
+
+        return post_body.get_text(strip=True)
+
+    def crawl_novel(self, novel_title, novel_url, category="", existing_novels=None):
+        if novel_url in existing_novels:
+            logger.info(f"  [Skip] {novel_title} (already crawled)")
             return
 
-        print(f"  [Crawl] {novel_title}: {novel_url}")
+        logger.info(f"  [Crawl] {novel_title}: {novel_url}")
         chapters = self.get_novel_chapters(novel_url)
         if not chapters:
-            print(f"    No chapters found, skipping.")
+            logger.warning(f"    No chapters found, skipping.")
             return
 
-        print(f"    Found {len(chapters)} chapters")
+        logger.info(f"    Found {len(chapters)} chapters")
         chapter_data = []
         for i, ch in enumerate(chapters):
-            print(f"    Chapter {i+1}/{len(chapters)}: {ch['title']}")
+            logger.info(f"    Chapter {i+1}/{len(chapters)}: {ch['title']}")
             content = self.get_chapter_content(ch["url"])
             chapter_data.append({
                 "title": ch["title"],
@@ -166,46 +194,46 @@ class XbookCnCrawler:
             "title": novel_title,
             "novel_url": novel_url,
             "category": category,
-            "chapters": chapter_data,
             "chapter_count": len(chapter_data),
-            "completed": True,
+            "crawled_at": datetime.now(),
+            "chapters": chapter_data,
         }
         self.collection.insert_one(novel_data)
-        print(f"    Saved: {novel_title} ({len(chapter_data)} chapters)")
+        existing_novels.add(novel_url)
+        logger.info(f"    Saved: {novel_title} ({len(chapter_data)} chapters)")
 
     def run(self):
-        print("=" * 60)
-        print("XbookCn Novel Crawler")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("XbookCn Novel Crawler")
+        logger.info("=" * 60)
 
         try:
-            self.connect_browser()
-            print("Connected to Chrome debug port.\n")
+            existing_novels = self.load_existing_novels()
+            logger.info(f"已存在 {len(existing_novels)} 部小说，跳过爬取")
 
             for cat_name, cat_path in self.CATEGORIES.items():
-                print(f"\n{'='*50}")
-                print(f"Category: {cat_name}")
-                print(f"{'='*50}")
+                logger.info(f"\n{'='*50}")
+                logger.info(f"Category: {cat_name}")
+                logger.info(f"{'='*50}")
 
                 novels = self.get_category_novels(cat_name, cat_path)
-                print(f"  Found {len(novels)} novels in {cat_name}")
+                logger.info(f"  Found {len(novels)} novels in {cat_name}")
 
                 for i, novel in enumerate(novels):
-                    print(f"\n  [{i+1}/{len(novels)}] {novel['title']}")
+                    logger.info(f"\n  [{i+1}/{len(novels)}] {novel['title']}")
                     try:
-                        self.crawl_novel(novel["title"], novel["url"], category=cat_name)
+                        self.crawl_novel(novel["title"], novel["url"], category=cat_name, existing_novels=existing_novels)
                     except Exception as e:
-                        print(f"    Error: {e}")
+                        logger.error(f"    Error: {e}")
                     self.sleep_random(2.0, 4.0)
 
                 self.sleep_random(3.0, 5.0)
 
         except Exception as e:
-            print(f"Fatal error: {e}")
+            logger.error(f"Fatal error: {e}")
         finally:
-            self.close_browser()
             self.client.close()
-            print("\nDone.")
+            logger.info("\nDone.")
 
 
 if __name__ == "__main__":

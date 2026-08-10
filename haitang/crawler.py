@@ -202,7 +202,7 @@ class NovelCrawler:
         existing_novels = self.load_existing_novels()
         logger.info(f"已存在 {len(existing_novels)} 部小说，跳过爬取")
         
-        status_map = {'1': '连载中', '2': '已完成'}
+        status_map = {'2': '已完成'}
         
         for category_name, category_id in categories.items():
             logger.info(f"开始爬取分类: {category_name}")
