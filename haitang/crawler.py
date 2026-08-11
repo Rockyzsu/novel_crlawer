@@ -191,7 +191,7 @@ class NovelCrawler:
                 'content': content
             })
             
-            time.sleep(random.uniform(0.5, 1.5))
+            # time.sleep(random.uniform(0.5, 1.5))
         
         return chapter_contents
     
@@ -248,12 +248,12 @@ class NovelCrawler:
                             existing_novels.add(novel['url'])
                             logger.info(f"  保存完成: {novel['title']} ({len(chapters)} 章)")
                         
-                        time.sleep(random.uniform(1, 2))
+                        # time.sleep(random.uniform(1, 2))
                     
                     if page >= total_pages:
                         break
                     page += 1
-                    time.sleep(random.uniform(1, 2))
+                    # time.sleep(random.uniform(1, 2))
         
         logger.info("爬取任务完成")
 
