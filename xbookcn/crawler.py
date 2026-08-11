@@ -64,17 +64,12 @@ class XbookCnCrawler:
         self.db = self.client[mongo_db]
         self.collection = self.db['xbookcn']
 
-        self.proxies = {}
-        proxy = os.getenv('PROXY', '')
-        if proxy:
-            self.proxies = {'https': proxy, 'http': proxy}
-
         self.session = cffi_requests.Session(impersonate="chrome")
 
     def get_page(self, url, max_retries=10):
         for attempt in range(max_retries):
             try:
-                r = self.session.get(url, proxies=self.proxies, timeout=20, verify=False)
+                r = self.session.get(url, timeout=20, verify=False)
                 if r.status_code == 200:
                     return r.text
                 logger.warning(f"HTTP {r.status_code}: {url}")
