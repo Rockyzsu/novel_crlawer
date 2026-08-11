@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-EXPORT_DIR = '/root/videos/novel/3xbookcn'
+EXPORT_DIR = '/root/videos/novel/xbookcn'
 
 
 def sanitize_filename(filename):
