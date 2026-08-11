@@ -8,8 +8,12 @@ from datetime import datetime
 from dotenv import load_dotenv
 from urllib.parse import urljoin, unquote
 import pymongo
-from curl_cffi import requests as cffi_requests
 from bs4 import BeautifulSoup
+import undetected_chromedriver as uc
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 load_dotenv()
 
@@ -64,20 +68,38 @@ class XbookCnCrawler:
         self.db = self.client[mongo_db]
         self.collection = self.db['xbookcn']
 
-        self.session = cffi_requests.Session(impersonate="chrome")
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
 
-    def get_page(self, url, max_retries=10):
+        self.driver = uc.Chrome(options=chrome_options, version_main=None)
+        self.wait = WebDriverWait(self.driver, 20)
+
+    def get_page(self, url, max_retries=5):
         for attempt in range(max_retries):
             try:
-                r = self.session.get(url, timeout=20, verify=False)
-                if r.status_code == 200:
-                    return r.text
-                logger.warning(f"HTTP {r.status_code}: {url}")
+                self.driver.get(url)
+                time.sleep(3)
+
+                page_source = self.driver.page_source
+                if 'Just a moment' in page_source or 'challenge' in page_source.lower():
+                    logger.info(f"  Cloudflare challenge detected, waiting... (attempt {attempt+1})")
+                    time.sleep(5)
+                    page_source = self.driver.page_source
+
+                if 'Just a moment' not in page_source:
+                    return page_source
+
+                logger.warning(f"  Still on challenge page (attempt {attempt+1})")
+                time.sleep(3)
             except Exception as e:
                 wait_time = (2 ** attempt) + random.uniform(0, 1)
                 logger.warning(f"请求失败 (第{attempt+1}/{max_retries}次): {url} - {e}, {wait_time:.1f}秒后重试")
-                if attempt < max_retries - 1:
-                    time.sleep(wait_time)
+                time.sleep(wait_time)
+
         logger.error(f"请求彻底失败: {url}")
         return None
 
@@ -227,6 +249,7 @@ class XbookCnCrawler:
         except Exception as e:
             logger.error(f"Fatal error: {e}")
         finally:
+            self.driver.quit()
             self.client.close()
             logger.info("\nDone.")
 
