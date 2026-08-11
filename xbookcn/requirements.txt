@@ -1,4 +1,4 @@
-cloudscraper
+curl_cffi
 beautifulsoup4
 pymongo
 python-dotenv
