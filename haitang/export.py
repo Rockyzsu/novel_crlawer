@@ -69,8 +69,8 @@ def export_novels():
         'has_exported': {'$ne': True}
     }
 
-    novels = list(collection.find(query))
-    logger.info(f"找到 {len(novels)} 部已完成且未导出的小说")
+    novels = list(collection.find(query).limit(20))
+    # logger.info(f"找到 {len(novels)} 部已完成且未导出的小说")
 
     success_count = 0
     fail_count = 0
