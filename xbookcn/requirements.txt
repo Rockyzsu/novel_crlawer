@@ -1,4 +1,5 @@
-curl_cffi
+cloudscraper
 beautifulsoup4
 pymongo
 python-dotenv
+PySocks

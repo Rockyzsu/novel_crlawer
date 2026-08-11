@@ -1,0 +1,14 @@
+2026-08-09 23:56:28,285 - INFO - ============================================================
+2026-08-09 23:56:28,286 - INFO - XbookCn Novel Crawler
+2026-08-09 23:56:28,286 - INFO - ============================================================
+2026-08-09 23:56:28,484 - INFO - 已存在 0 部小说，跳过爬取
+2026-08-09 23:56:28,486 - INFO - 
+==================================================
+2026-08-09 23:56:28,486 - INFO - Category: 通俗小说
+2026-08-09 23:56:28,486 - INFO - ==================================================
+2026-08-09 23:56:28,487 - INFO - [Category] 通俗小说: https://book.xbookcn.net/p/popular.html
+2026-08-09 23:56:48,495 - WARNING - 请求失败 (第1/10次): https://book.xbookcn.net/p/popular.html - Failed to perform, curl: (28) Connection timed out after 20000 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details., 1.4秒后重试
+2026-08-09 23:57:09,853 - WARNING - 请求失败 (第2/10次): https://book.xbookcn.net/p/popular.html - Failed to perform, curl: (28) Connection timed out after 20002 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details., 2.0秒后重试
+2026-08-09 23:57:31,882 - WARNING - 请求失败 (第3/10次): https://book.xbookcn.net/p/popular.html - Failed to perform, curl: (28) Connection timed out after 20011 milliseconds. See https://curl.se/libcurl/c/libcurl-errors.html first for more details., 4.2秒后重试
+2026-08-09 23:57:56,138 - INFO - 
+Done.
