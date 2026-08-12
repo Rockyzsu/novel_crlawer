@@ -63,8 +63,9 @@ def export_novels():
     """导出已完成的小说为 txt 文件"""
     collection = connect_mongo()
 
-    # 查询已完成且未导出的小说
+    # 查询内容已全部爬取完成且未导出的小说
     query = {
+        'content_fetched': True,
         'has_exported': {'$ne': True}
     }
 
