@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import pymongo
+import redis
 import time
 import random
 from urllib.parse import urljoin
@@ -54,6 +55,16 @@ class NovelCrawler:
         
         self.db = self.client[mongo_db]
         self.collection = self.db['haitang']
+        
+        redis_host = os.getenv('REDIS_HOST', 'localhost')
+        redis_port = int(os.getenv('REDIS_PORT', '6379'))
+        redis_db = int(os.getenv('REDIS_DB', '0'))
+        redis_pass = os.getenv('REDIS_PASS', '')
+        
+        if redis_pass:
+            self.redis = redis.Redis(host=redis_host, port=redis_port, db=redis_db, password=redis_pass)
+        else:
+            self.redis = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
         
     def get_page(self, url, max_retries=10):
         """获取页面内容，支持重试机制，间隔指数递增"""
@@ -174,6 +185,11 @@ class NovelCrawler:
     def save_novel(self, novel_data):
         self.collection.insert_one(self.sanitize(novel_data))
     
+    def acquire_lock(self, novel_url):
+        """尝试获取爬取锁，返回True表示获取成功"""
+        lock_key = f"haitang:lock:{novel_url}"
+        return self.redis.set(lock_key, '1', nx=True)
+    
     def crawl_novel(self, novel_url):
         html = self.get_page(novel_url)
         if not html:
@@ -237,6 +253,10 @@ class NovelCrawler:
                     for novel in novels:
                         if novel['url'] in existing_novels:
                             logger.info(f"  跳过已存在: {novel['title']}")
+                            continue
+                        
+                        if not self.acquire_lock(novel['url']):
+                            logger.info(f"  跳过正在爬取: {novel['title']}")
                             continue
                         
                         logger.info(f"  爬取小说: {novel['title']}")
