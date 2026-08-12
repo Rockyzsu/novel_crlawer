@@ -60,8 +60,7 @@ class NovelCrawler:
         for attempt in range(max_retries):
             try:
                 response = requests.get(url, headers=self.headers, timeout=10)
-                response.encoding = 'gbk'
-                return response.text
+                return response.content.decode('gbk', errors='replace')
             except Exception as e:
                 wait_time = (2 ** attempt) + random.uniform(0, 1)  # 指数退避: 1,2,4,8,16,32,64,128,256,512秒
                 logger.warning(f"请求失败 (第{attempt+1}/{max_retries}次): {url} - {e}, {wait_time:.1f}秒后重试")
