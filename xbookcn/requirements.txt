@@ -2,3 +2,5 @@ undetected-chromedriver
 beautifulsoup4
 pymongo
 python-dotenv
+redis
+requests

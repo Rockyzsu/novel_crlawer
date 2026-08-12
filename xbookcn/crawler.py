@@ -196,16 +196,8 @@ class XbookCnCrawler:
             return
 
         logger.info(f"    Found {len(chapters)} chapters")
-        chapter_data = []
-        for i, ch in enumerate(chapters):
-            logger.info(f"    Chapter {i+1}/{len(chapters)}: {ch['title']}")
-            content = self.get_chapter_content(ch["url"])
-            chapter_data.append({
-                "title": ch["title"],
-                "url": ch["url"],
-                "content": content,
-            })
-            self.sleep_random(1.0, 2.5)
+
+        chapter_data = [{"title": ch["title"], "url": ch["url"], "content": ""} for ch in chapters]
 
         novel_data = {
             "title": novel_title,
@@ -213,11 +205,12 @@ class XbookCnCrawler:
             "category": category,
             "chapter_count": len(chapter_data),
             "crawled_at": datetime.now(),
+            "content_fetched": False,
             "chapters": chapter_data,
         }
         self.collection.insert_one(novel_data)
         existing_novels.add(novel_url)
-        logger.info(f"    Saved: {novel_title} ({len(chapter_data)} chapters)")
+        logger.info(f"    Saved: {novel_title} ({len(chapter_data)} chapters, content pending)")
 
     def run(self):
         logger.info("=" * 60)
