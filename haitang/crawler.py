@@ -162,8 +162,17 @@ class NovelCrawler:
             existing.add(doc['novel_url'])
         return existing
     
+    def sanitize(self, obj):
+        if isinstance(obj, str):
+            return obj.encode('utf-8', errors='replace').decode('utf-8')
+        elif isinstance(obj, dict):
+            return {k: self.sanitize(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.sanitize(v) for v in obj]
+        return obj
+
     def save_novel(self, novel_data):
-        self.collection.insert_one(novel_data)
+        self.collection.insert_one(self.sanitize(novel_data))
     
     def crawl_novel(self, novel_url):
         html = self.get_page(novel_url)
