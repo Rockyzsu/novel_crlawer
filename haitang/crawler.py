@@ -186,9 +186,8 @@ class NovelCrawler:
         self.collection.insert_one(self.sanitize(novel_data))
     
     def acquire_lock(self, novel_url):
-        """尝试获取爬取锁，返回True表示获取成功"""
-        lock_key = f"haitang:lock:{novel_url}"
-        return self.redis.set(lock_key, '1', nx=True)
+        """检查是否正在爬取，如果没有则添加到集合"""
+        return self.redis.sadd('haitang:crawling', novel_url) == 1
     
     def crawl_novel(self, novel_url):
         html = self.get_page(novel_url)
@@ -252,7 +251,7 @@ class NovelCrawler:
                     
                     for novel in novels:
                         if novel['url'] in existing_novels:
-                            logger.info(f"  跳过已存在: {novel['title']}")
+                            # logger.info(f"  跳过已存在: {novel['title']}")
                             continue
                         
                         if not self.acquire_lock(novel['url']):
