@@ -75,7 +75,7 @@ class XbookCnCrawler:
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--window-size=1920,1080')
 
-        self.driver = uc.Chrome(options=chrome_options, version_main=None)
+        self.driver = uc.Chrome(options=chrome_options, version_main=151)
         self.wait = WebDriverWait(self.driver, 20)
 
     def get_page(self, url, max_retries=5):

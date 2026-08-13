@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import pymongo
+from pymongo.errors import DocumentTooLarge
 import redis
 import time
 import random
@@ -65,6 +66,11 @@ class NovelCrawler:
             self.redis = redis.Redis(host=redis_host, port=redis_port, db=redis_db, password=redis_pass)
         else:
             self.redis = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+        
+        # 本地保存目录（用于保存过大的章节内容）
+        self.local_save_dir = os.getenv('LOCAL_SAVE_DIR', '/root/videos/novel/3haitang')
+        if not os.path.exists(self.local_save_dir):
+            os.makedirs(self.local_save_dir)
         
     def get_page(self, url, max_retries=10):
         """获取页面内容，支持重试机制，间隔指数递增"""
@@ -181,9 +187,50 @@ class NovelCrawler:
         elif isinstance(obj, list):
             return [self.sanitize(v) for v in obj]
         return obj
+    
+    def sanitize_filename(self, filename):
+        """移除文件名中的非法字符"""
+        illegal_chars = r'[<>:"/\\|?*\x00-\x1f]'
+        cleaned = re.sub(illegal_chars, '', filename)
+        cleaned = cleaned.strip('. ')
+        if not cleaned:
+            cleaned = 'unnamed'
+        return cleaned
+    
+    def save_novel_as_txt(self, novel_data):
+        """将小说内容保存为本地txt文件"""
+        title = novel_data.get('title', 'unknown')
+        category = novel_data.get('category', '未分类')
+        chapters = novel_data.get('chapters', [])
+        
+        # 创建分类目录
+        category_dir = os.path.join(self.local_save_dir, self.sanitize_filename(category))
+        os.makedirs(category_dir, exist_ok=True)
+        
+        # 生成文件名
+        safe_title = self.sanitize_filename(title)
+        txt_path = os.path.join(category_dir, f"{safe_title}.txt")
+        
+        with open(txt_path, 'w', encoding='utf-8') as f:
+            for i, chapter in enumerate(chapters):
+                chapter_title = chapter.get('title', f'第{i+1}章')
+                content = chapter.get('content', '') or ''
+                
+                f.write(f"{chapter_title}\n")
+                f.write(f"{'=' * 50}\n")
+                f.write(f"{content}\n")
+                f.write(f"\n\n")
+        
+        return txt_path
 
     def save_novel(self, novel_data):
-        self.collection.insert_one(self.sanitize(novel_data))
+        """保存小说到MongoDB，如果文档过大则保存为本地txt文件"""
+        try:
+            self.collection.insert_one(self.sanitize(novel_data))
+        except DocumentTooLarge:
+            logger.warning(f"文档过大，无法写入MongoDB，保存为本地txt文件: {novel_data.get('title', 'unknown')}")
+            txt_path = self.save_novel_as_txt(novel_data)
+            logger.info(f"已保存为本地文件: {txt_path}")
     
     def acquire_lock(self, novel_url):
         """检查是否正在爬取，如果没有则添加到集合"""
