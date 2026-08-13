@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 class XbookCnCrawler:
     BASE_URL = "https://book.xbookcn.net"
 
+    # Alread crawled categories, you can add more if needed
     CATEGORIES = {
         "通俗小说": "/p/popular.html",
         "都市小说": "/p/urban.html",
@@ -47,6 +48,10 @@ class XbookCnCrawler:
         "黑暗小说": "/p/dark.html",
         "言情小说": "/p/romance.html",
     }
+
+    # CATEGORIES = {
+
+    # }
 
     def __init__(self):
         mongo_host = os.getenv('MONGO_HOST', 'localhost')
